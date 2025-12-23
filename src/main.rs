@@ -1,6 +1,7 @@
 use std::{
     env,
     error::Error,
+    fmt::Display,
     fs::File,
     io::{BufReader, Read},
 };
@@ -22,6 +23,12 @@ macro_rules! instruction {
                     }
                 }
             }
+
+            impl Display for [<$variant Instruction>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{}", stringify!([<$variant>]))
+                }
+            }
         }
     };
     ($enum:ident :: $variant:ident, 1) => {
@@ -38,6 +45,12 @@ macro_rules! instruction {
                         size: 1,
                         a: slice[0],
                     }
+                }
+            }
+
+            impl Display for [<$variant Instruction>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{} -> a: {:02X}", stringify!([<$variant>]), self.a)
                 }
             }
         }
@@ -58,6 +71,12 @@ macro_rules! instruction {
                         a: slice[0],
                         b: slice[1],
                     }
+                }
+            }
+
+            impl Display for [<$variant Instruction>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{} -> a: {:02X}, b: {:02X}", stringify!([<$variant>]), self.a, self.b)
                 }
             }
         }
@@ -82,24 +101,23 @@ macro_rules! instruction {
                     }
                 }
             }
+
+            impl Display for [<$variant Instruction>] {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{} -> a: {:02X}, b: {:02X}, c: {:02X}", stringify!([<$variant>]), self.a, self.b, self.c)
+                }
+            }
         }
     };
 }
 
 const MAX_MEM: usize = 2u16.pow(15) as usize - 1;
 const ADDR_SPACE: usize = MAX_MEM + 8;
-const REG_0: usize = ADDR_SPACE - 7;
-const REG_1: usize = ADDR_SPACE - 6;
-const REG_2: usize = ADDR_SPACE - 5;
-const REG_3: usize = ADDR_SPACE - 4;
-const REG_4: usize = ADDR_SPACE - 3;
-const REG_5: usize = ADDR_SPACE - 2;
-const REG_6: usize = ADDR_SPACE - 1;
-const REG_7: usize = ADDR_SPACE;
 
 #[derive(Debug)]
 struct Machine {
     pc: usize,
+    /// "top" 8 slots are registers per spec
     memory: [u16; ADDR_SPACE],
     stack: Vec<u16>,
 }
@@ -178,6 +196,35 @@ enum Instruction {
     Noop(NoopInstruction),
 }
 
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Instruction::Halt(i) => write!(f, "{i}"),
+            Instruction::Set(i) => write!(f, "{i}"),
+            Instruction::Push(i) => write!(f, "{i}"),
+            Instruction::Pop(i) => write!(f, "{i}"),
+            Instruction::Eq(i) => write!(f, "{i}"),
+            Instruction::Gt(i) => write!(f, "{i}"),
+            Instruction::Jmp(i) => write!(f, "{i}"),
+            Instruction::Jt(i) => write!(f, "{i}"),
+            Instruction::Jf(i) => write!(f, "{i}"),
+            Instruction::Add(i) => write!(f, "{i}"),
+            Instruction::Mult(i) => write!(f, "{i}"),
+            Instruction::Mod(i) => write!(f, "{i}"),
+            Instruction::And(i) => write!(f, "{i}"),
+            Instruction::Or(i) => write!(f, "{i}"),
+            Instruction::Not(i) => write!(f, "{i}"),
+            Instruction::Rmem(i) => write!(f, "{i}"),
+            Instruction::Wmem(i) => write!(f, "{i}"),
+            Instruction::Call(i) => write!(f, "{i}"),
+            Instruction::Ret(i) => write!(f, "{i}"),
+            Instruction::Out(i) => write!(f, "{i}"),
+            Instruction::In(i) => write!(f, "{i}"),
+            Instruction::Noop(i) => write!(f, "{i}"),
+        }
+    }
+}
+
 #[derive(PartialEq)]
 enum OpCode {
     Halt = 0,
@@ -247,7 +294,8 @@ impl Machine {
         let file = File::open(filename)?;
         let mut reader = BufReader::new(file);
         let mut buf = vec![];
-        let _ = reader.read_to_end(&mut buf)?;
+        let size = reader.read_to_end(&mut buf)?;
+        eprintln!("loaded program: {size} bytes");
         self.load_bytes(&buf)
     }
 
@@ -255,35 +303,103 @@ impl Machine {
         loop {
             let inst = self.decode();
 
-            eprintln!("after inst decode - pc: {:?}\tinst: {inst:?}", self.pc);
-
             match inst {
                 Instruction::Noop(_) => continue,
                 Instruction::Halt(_) => {
                     break;
                 }
-                Instruction::Set(_i) => todo!(),
-                Instruction::Push(_i) => todo!(),
-                Instruction::Pop(_i) => todo!(),
-                Instruction::Eq(_i) => todo!(),
-                Instruction::Gt(_i) => todo!(),
-                Instruction::Jmp(_i) => todo!(),
-                Instruction::Jt(_i) => todo!(),
-                Instruction::Jf(_i) => todo!(),
-                Instruction::Add(_i) => todo!(),
-                Instruction::Mult(_i) => todo!(),
-                Instruction::Mod(_i) => todo!(),
-                Instruction::And(_i) => todo!(),
-                Instruction::Or(_i) => todo!(),
-                Instruction::Not(_i) => todo!(),
-                Instruction::Rmem(_i) => todo!(),
-                Instruction::Wmem(_i) => todo!(),
-                Instruction::Call(_i) => todo!(),
-                Instruction::Ret(_i) => todo!(),
+                Instruction::Set(i) => {
+                    let addr = i.a;
+                    let val = i.b;
+                    self.write_reg(addr, val);
+                }
+                Instruction::Push(i) => {
+                    self.stack.push(self.memory[usize::from(i.a)]);
+                }
+                Instruction::Pop(i) => {
+                    if let Some(val) = self.stack.pop() {
+                        self.memory[usize::from(i.a)] = val;
+                    } else {
+                        panic!("pop of empty stack");
+                    }
+                }
+                Instruction::Eq(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    let res = if lhs == rhs { 1 } else { 0 };
+                    self.memory[usize::from(i.a)] = res;
+                }
+                Instruction::Gt(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    let res = if lhs > rhs { 1 } else { 0 };
+                    self.memory[usize::from(i.a)] = res;
+                }
+                Instruction::Add(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    self.memory[usize::from(i.a)] = (lhs + rhs) % 32768;
+                }
+                Instruction::Mult(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    self.memory[usize::from(i.a)] = (lhs * rhs) % 32768;
+                }
+                Instruction::Mod(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    self.memory[usize::from(i.a)] = lhs % rhs;
+                }
+                Instruction::And(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    self.memory[usize::from(i.a)] = lhs & rhs;
+                }
+                Instruction::Or(i) => {
+                    let lhs = self.read_val(i.b);
+                    let rhs = self.read_val(i.c);
+                    self.memory[usize::from(i.a)] = lhs | rhs;
+                }
+                Instruction::Not(i) => {
+                    let operand = self.read_val(i.b);
+                    self.memory[usize::from(i.a)] = !operand;
+                }
+                Instruction::Jmp(i) => {
+                    self.pc = usize::from(i.a);
+                }
+                Instruction::Jt(i) => {
+                    if i.a != 0 {
+                        self.pc = usize::from(i.b);
+                    }
+                }
+                Instruction::Jf(i) => {
+                    if i.a == 0 {
+                        self.pc = usize::from(i.b);
+                    }
+                }
+                Instruction::Rmem(i) => {
+                    self.memory[usize::from(i.a)] = self.memory[usize::from(i.b)];
+                }
+                Instruction::Wmem(i) => {
+                    let val = self.read_val(i.b);
+                    self.memory[usize::from(i.a)] = val;
+                }
+                Instruction::Call(i) => {
+                    self.stack.push(self.pc as u16 + 1);
+                    self.pc = usize::from(i.a);
+                }
+                Instruction::Ret(_i) => {
+                    if let Some(val) = self.stack.pop() {
+                        self.pc = usize::from(val);
+                    } else {
+                        // per spec, empty stack == halt
+                        break;
+                    }
+                }
                 Instruction::Out(i) => {
                     print!("{}", i.a as u8 as char);
                 }
-                Instruction::In(_i) => todo!(),
+                Instruction::In(_i) => todo!("'in' opcode"),
             }
         }
         Ok(())
@@ -291,8 +407,9 @@ impl Machine {
 
     fn decode(&mut self) -> Instruction {
         let op = OpCode::from(self.memory[self.pc]);
+        let orig_pc = self.pc;
         self.pc += 1;
-        match op {
+        let inst = match op {
             OpCode::Halt => {
                 let inst = HaltInstruction::decode(&self.memory[self.pc..]);
                 self.pc += usize::from(inst.size);
@@ -403,7 +520,9 @@ impl Machine {
                 self.pc += usize::from(inst.size);
                 Instruction::Noop(inst)
             }
-        }
+        };
+        eprintln!("{orig_pc:X}:\t{inst}");
+        inst
     }
 
     fn load_bytes(&mut self, buf: &[u8]) -> Result<(), std::io::Error> {
@@ -414,17 +533,26 @@ impl Machine {
         Ok(())
     }
 
-    const fn reg_offset(num: u16) -> usize {
-        assert!(num < 8);
-        MAX_MEM + num as usize
+    fn read_val(&self, addr_or_val: u16) -> u16 {
+        if Machine::is_reg(addr_or_val) {
+            self.read_reg(addr_or_val)
+        } else {
+            addr_or_val
+        }
     }
 
-    fn read_reg(&self, num: u16) -> u16 {
-        self.memory[Machine::reg_offset(num)]
+    fn read_reg(&self, addr: u16) -> u16 {
+        assert!(Machine::is_reg(addr));
+        self.memory[usize::from(addr)]
     }
 
-    fn write_reg(&mut self, num: u16, val: u16) {
-        self.memory[Machine::reg_offset(num)] = val;
+    fn write_reg(&mut self, addr: u16, val: u16) {
+        assert!(Machine::is_reg(addr));
+        self.memory[usize::from(addr)] = val;
+    }
+
+    fn is_reg(addr: u16) -> bool {
+        ADDR_SPACE - usize::from(addr) < 8
     }
 }
 
